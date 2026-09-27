@@ -167,8 +167,23 @@ Every later phase follows these, so check new code against them.
   - A Zig optional (`?T`) becomes the same `int` convention. The function returns 0 and fills the
     out pointer when there is a value. For "no value" it returns a specific errno that the header
     documents, e.g. `-ENOSPC` for a full id allocator or `-EBUSY` for an id already taken.
+  - A Zig optional *parameter* becomes a by-value struct with a `NONE` kind, e.g. `?IoResult` in
+    `run_once` becomes `struct zv_kvm_io_result` with `ZV_KVM_IO_RESULT_NONE`. It can be stored
+    between calls, which the phase 5 vCPU loop does.
   - Test-only helpers (`test_utils/`) return a bool or a count. They abort when the environment is
     broken (e.g. `/proc/self/fd` won't open, or out of memory).
+- **A file that only wraps `@cImport` gets no C file** (e.g. `kvm/abi.zig`). Each C file includes
+  the uapi header (`<linux/kvm.h>`) directly.
+- **`zv_kvm_tests` has no Zig counterpart.** `build.zig` has no kvm test step; the Zig kvm code is
+  only exercised through the vmm tests. The C kvm smoke tests are new, the one exception to "one
+  test executable per Zig test step". Tests create every KVM object themselves: a VM belongs to the
+  process that created it, so nothing may open `/dev/kvm` in the runner's parent process (this
+  includes the `pthread_once` KVM getter in phase 5).
+- **Error paths close what Zig leaks.** `Kvm.init` leaves `/dev/kvm` open when the version check
+  fails, and `Vm.create_vcpu` leaves the vCPU fd open when its mmap fails. The `goto` cleanup closes
+  both. This is intentional; other known bugs (like `contains_range`) are still translated as-is.
+- **The kvm layer never logs**, as in Zig. A logged error fails any test that hits it, and callers
+  (e.g. the vCPU loop on an unknown exit) decide how serious an error is.
 - **Closing fds in `deinit`.** Zig's `std.debug.assert(close(...) == 0)` becomes
   `int rc = close(fd); assert(rc == 0); (void)rc;`, and the fd field is then set to -1.
 - **glibc's `struct epoll_event` is packed on x86_64.** Read and write its `data` field by value,

@@ -93,6 +93,17 @@ add_library(zv_test_utils STATIC
 )
 target_link_libraries(zv_test_utils PUBLIC zv_utils Threads::Threads)
 
+# kvm maps each vCPU's kvm_run area through test_utils' zv_mmap() so the leak tracker sees it,
+# mirroring the Zig kvm module's import of test_utils.
+add_library(zv_kvm STATIC
+    kvm/cpuid.c
+    kvm/ioctl.c
+    kvm/kvm.c
+    kvm/vcpu.c
+    kvm/vm.c
+)
+target_link_libraries(zv_kvm PUBLIC zv_utils zv_test_utils)
+
 # ---------------------------------------------------------------------------------------------------
 # Tests. One executable per Zig test step in build.zig.
 # ---------------------------------------------------------------------------------------------------
@@ -117,6 +128,18 @@ add_executable(zv_utils_tests
 )
 target_link_libraries(zv_utils_tests PRIVATE zv_utils zv_test_runner)
 add_test(NAME utils COMMAND zv_utils_tests WORKING_DIRECTORY ${ZV_TEST_WORKING_DIRECTORY})
+
+# No Zig counterpart: build.zig has no kvm test step. Timeout so a stuck guest can't hang ctest.
+add_executable(zv_kvm_tests
+    kvm/tests_main.c
+    kvm/cpuid_test.c
+    kvm/kvm_test.c
+    kvm/vcpu_test.c
+    kvm/vm_test.c
+)
+target_link_libraries(zv_kvm_tests PRIVATE zv_kvm zv_test_runner)
+add_test(NAME kvm COMMAND zv_kvm_tests WORKING_DIRECTORY ${ZV_TEST_WORKING_DIRECTORY})
+set_tests_properties(kvm PROPERTIES TIMEOUT 60)
 
 add_executable(zv_test_utils_tests
     test_utils/tests_main.c
