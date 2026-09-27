@@ -111,15 +111,25 @@ add_library(zv_vmm STATIC
     vmm/acpi/rsdt.c
     vmm/acpi/xsdt.c
     vmm/arch/x86/acpi.c
+    vmm/arch/x86/device_bus.c
     vmm/arch/x86/gdt.c
+    vmm/arch/x86/io_bus.c
     vmm/arch/x86/layout.c
+    vmm/arch/x86/mmio_bus.c
     vmm/arch/x86/paging.c
+    vmm/arch/x86/vm.c
+    vmm/device/cmos.c
+    vmm/device/mc146818rtc.c
+    vmm/device/uart_16550.c
+    vmm/event_token.c
     vmm/image/bzimage.c
     vmm/image/image.c
     vmm/memory.c
+    vmm/vcpu.c
     vmm/vm_config.c
+    vmm/vmm.c
 )
-target_link_libraries(zv_vmm PUBLIC zv_kvm zv_utils zv_test_utils)
+target_link_libraries(zv_vmm PUBLIC zv_kvm zv_utils zv_test_utils Threads::Threads)
 
 # ---------------------------------------------------------------------------------------------------
 # Tests. One executable per Zig test step in build.zig.
@@ -164,10 +174,14 @@ add_executable(zv_vmm_tests
     vmm/tests_main.c
     vmm/arch/x86/acpi_test.c
     vmm/arch/x86/gdt_test.c
+    vmm/arch/x86/mmio_bus_test.c
     vmm/arch/x86/paging_test.c
+    vmm/device/cmos_test.c
+    vmm/event_token_test.c
     vmm/image/bzimage_test.c
     vmm/image/image_test.c
     vmm/memory_test.c
+    vmm/vmm_test.c
 )
 target_link_libraries(zv_vmm_tests PRIVATE zv_vmm zv_test_runner)
 add_test(NAME vmm COMMAND zv_vmm_tests WORKING_DIRECTORY ${ZV_TEST_WORKING_DIRECTORY})

@@ -47,7 +47,7 @@ struct zv_vm_config {
 
     struct zv_vm_block_device_config block_device;
 
-    /* Kernel command line, or NULL for the default one. */
+    /* Kernel command line, or NULL (or "") for the default one. */
     const char *cmdline;
 
     /* Number of vCPUs, 1 to ZV_VM_MAX_VCPUS. Default 1. */

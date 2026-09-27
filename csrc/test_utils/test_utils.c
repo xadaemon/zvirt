@@ -6,9 +6,11 @@
 #include "utils/log.h"
 
 #include <dirent.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define LOG_SCOPE "test_utils"
 
@@ -53,4 +55,52 @@ bool zv_fd_leak_check_ex(const struct zv_fd_leak_snapshot *snapshot, bool print)
 bool zv_fd_leak_check(const struct zv_fd_leak_snapshot *snapshot)
 {
     return zv_fd_leak_check_ex(snapshot, true);
+}
+
+void zv_tmp_uart_output_create(struct zv_tmp_uart_output *output)
+{
+    snprintf(output->directory, sizeof(output->directory), "/tmp/zvirt-test-XXXXXX");
+
+    if (mkdtemp(output->directory) == NULL) {
+        perror("mkdtemp");
+        abort();
+    }
+
+    snprintf(output->path, sizeof(output->path), "%s/com1.out", output->directory);
+
+    output->fd = open(output->path, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    if (output->fd < 0) {
+        perror("open console output file");
+        abort();
+    }
+}
+
+void zv_tmp_uart_output_deinit(struct zv_tmp_uart_output *output)
+{
+    close(output->fd);
+    output->fd = -1;
+    unlink(output->path);
+    rmdir(output->directory);
+}
+
+size_t zv_tmp_uart_output_read(const struct zv_tmp_uart_output *output, char *buffer, size_t size)
+{
+    size_t total = 0;
+
+    /* pread keeps the file offset where the VM is appending. */
+    while (total < size - 1) {
+        ssize_t bytes_read = pread(output->fd, buffer + total, size - 1 - total, (off_t)total);
+
+        if (bytes_read < 0) {
+            perror("read console output file");
+            abort();
+        }
+        if (bytes_read == 0)
+            break;
+
+        total += (size_t)bytes_read;
+    }
+
+    buffer[total] = '\0';
+    return total;
 }

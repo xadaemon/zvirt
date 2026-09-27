@@ -229,9 +229,25 @@ for everything else.
 | `vmm/arch/x86/acpi.zig` `setup_tables` | panics (`.?`) if the ACPI area isn't mapped | returns `-EFAULT` | tested |
 | `test_utils/mmap.zig` | the tracker can log leaked mappings itself | `zv_mmap_tracker_stop()` returns the count; the caller reports | the Zig logging was off by default |
 | `utils/idalloc.zig` | generic over the id count | `zv_id_allocator_init(count)`, aborts above 64 ids | C has no generics; the only user needs 16 |
+| `vmm/root.zig` `Vm.new` error path | leaves already-created vCPU threads running with pointers into freed memory | deinits (and joins) them | bug fix, falls out of `goto` cleanup |
+| `vmm/arch/x86/mmio_bus.zig` unmapped address; `uart_16550.zig` write to register 6; `cmos.zig` read of an unsupported register | panic (a UART write to register 5 without DLAB returns an error without logging) | log an error and return `-EFAULT`/`-EINVAL`; the vCPU stops with InternalError | guest-controlled, so an error rather than a crash (safety-check rule) |
+| `vmm/arch/x86/mmio_bus.zig` access wider than 8 bytes | slice panic | logged error, `-EFAULT` | same |
+| `vmm/arch/x86/mmio_bus.zig` ranges | treap, unbounded | fixed array of 32, `-ENOSPC` when full | a handful of devices at most |
+| `vmm/arch/x86/vm.zig` `vm_prerun` | writes the command line without a terminating NUL (guest RAM is zero anyway) | writes the NUL | the buffer is a C string |
+| `vmm/root.zig` `EventSource`, `EventToken` | part of `root.zig` | own file `vmm/event_token.{h,c}` | the buses need it, and `vmm.h` includes the buses |
+| **Temporary** (phases 5-8): `zv_vm_new` | builds PCI, virtio-blk and virtio-net devices | returns `-ENOTSUP` if the config asks for them; the I/O bus behaves as if there is no PCI bus | those devices aren't ported yet. Each check goes away in the phase that ports the device |
 | `utils/file.c` | `std.Io.Dir.readFileAlloc` | new `zv_read_file` | no C equivalent |
 | `utils/mac.zig` | two error kinds; `parseInt` accepts e.g. `+f` | one `-EINVAL`; exactly two hex digits | stricter on malformed input only |
 | `vmm/image/bzimage.zig` | re-checks `initrd_begin + len > ram_end`, which can never be true after aligning down | check dropped | replaced by the real underflow check above |
+
+### Open questions
+
+- **Console input at end of file (decide in phase 9).** When a console's input fd reaches EOF,
+  `zv_uart_handle_event` reads 0 bytes and returns. The fd is registered level-triggered and a
+  closed pipe stays readable, so the main loop would spin at 100% CPU. The tests close their pipes
+  only after the VM stops, so they never hit this; the CLI with piped stdin (`zvirt ... < file`)
+  would. The right fix depends on what Zig's `readStreaming` does at EOF, which needs checking
+  against a Zig build.
 
 ### Building and testing
 
@@ -247,6 +263,10 @@ build/debug/zv_test_utils_tests mmap    # run one executable with a name filter
 Tests run from the `zvirt/` root, because they open fixtures such as `test_bins/bzImage` by
 relative path, like the Zig tests. `ctest` sets this working directory itself. When running a test
 executable by hand, run it from `zvirt/`.
+
+The VM tests also check *why* the boot vCPU stopped (test exit, shutdown, internal error). The
+Zig tests only check that `run()` succeeds, which a guest stopping for the wrong reason would also
+pass.
 
 Build output goes to `zvirt/build/<preset>/` (git-ignored). The presets use Ninja. CI will need
 `clang`, `cmake` and `ninja-build` installed once the C job is added.
