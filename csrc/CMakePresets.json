@@ -1,0 +1,54 @@
+{
+    "version": 6,
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/../build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "ZV_WERROR": "ON",
+                "ZV_PROFILE": "OFF"
+            }
+        },
+        {
+            "name": "debug",
+            "displayName": "Debug with ASan and UBSan",
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "ZV_SANITIZE": "address"
+            }
+        },
+        {
+            "name": "tsan",
+            "displayName": "Debug with ThreadSanitizer",
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "ZV_SANITIZE": "thread"
+            }
+        },
+        {
+            "name": "release",
+            "displayName": "Release, no sanitizers",
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "ZV_SANITIZE": "none"
+            }
+        }
+    ],
+    "buildPresets": [
+        { "name": "debug", "configurePreset": "debug" },
+        { "name": "tsan", "configurePreset": "tsan" },
+        { "name": "release", "configurePreset": "release" }
+    ],
+    "testPresets": [
+        { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true } },
+        { "name": "tsan", "configurePreset": "tsan", "output": { "outputOnFailure": true } },
+        { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } }
+    ]
+}

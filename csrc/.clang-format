@@ -1,0 +1,13 @@
+# Matches the Zig code's layout: 4-space indent, 100 columns.
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 100
+# Function braces on their own line, everything else on the same line (Linux kernel style).
+BreakBeforeBraces: Linux
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+IndentCaseLabels: false
+PointerAlignment: Right
+# Keep "own header first, then project headers, then system headers" as written by hand.
+SortIncludes: Never
