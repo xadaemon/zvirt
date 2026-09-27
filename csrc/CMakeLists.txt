@@ -80,6 +80,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 add_library(zv_utils STATIC
     utils/epoll.c
     utils/eventfd.c
+    utils/file.c
     utils/idalloc.c
     utils/log.c
     utils/mac.c
@@ -104,6 +105,22 @@ add_library(zv_kvm STATIC
 )
 target_link_libraries(zv_kvm PUBLIC zv_utils zv_test_utils)
 
+add_library(zv_vmm STATIC
+    vmm/acpi/acpi.c
+    vmm/acpi/madt.c
+    vmm/acpi/rsdt.c
+    vmm/acpi/xsdt.c
+    vmm/arch/x86/acpi.c
+    vmm/arch/x86/gdt.c
+    vmm/arch/x86/layout.c
+    vmm/arch/x86/paging.c
+    vmm/image/bzimage.c
+    vmm/image/image.c
+    vmm/memory.c
+    vmm/vm_config.c
+)
+target_link_libraries(zv_vmm PUBLIC zv_kvm zv_utils zv_test_utils)
+
 # ---------------------------------------------------------------------------------------------------
 # Tests. One executable per Zig test step in build.zig.
 # ---------------------------------------------------------------------------------------------------
@@ -122,6 +139,7 @@ add_executable(zv_utils_tests
     utils/tests_main.c
     utils/epoll_test.c
     utils/eventfd_test.c
+    utils/file_test.c
     utils/idalloc_test.c
     utils/mac_test.c
     utils/tap_test.c
@@ -140,6 +158,20 @@ add_executable(zv_kvm_tests
 target_link_libraries(zv_kvm_tests PRIVATE zv_kvm zv_test_runner)
 add_test(NAME kvm COMMAND zv_kvm_tests WORKING_DIRECTORY ${ZV_TEST_WORKING_DIRECTORY})
 set_tests_properties(kvm PROPERTIES TIMEOUT 60)
+
+# The phase 5+ tests boot Linux, so this gets a generous timeout.
+add_executable(zv_vmm_tests
+    vmm/tests_main.c
+    vmm/arch/x86/acpi_test.c
+    vmm/arch/x86/gdt_test.c
+    vmm/arch/x86/paging_test.c
+    vmm/image/bzimage_test.c
+    vmm/image/image_test.c
+    vmm/memory_test.c
+)
+target_link_libraries(zv_vmm_tests PRIVATE zv_vmm zv_test_runner)
+add_test(NAME vmm COMMAND zv_vmm_tests WORKING_DIRECTORY ${ZV_TEST_WORKING_DIRECTORY})
+set_tests_properties(vmm PROPERTIES TIMEOUT 600)
 
 add_executable(zv_test_utils_tests
     test_utils/tests_main.c

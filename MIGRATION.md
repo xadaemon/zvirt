@@ -86,11 +86,14 @@ The prebuilt test fixtures in `test_bins/*` stay as they are.
 
 Zig's bounds-checked slices were quietly guarding guest-controlled input: virtio descriptors,
 MMIO/PIO offsets, and PCI config access. In C:
-- `zv_guest_memory_as_slice(mem, gpa, len, &out)` is the only way to reach guest memory.
+- `zv_guest_memory_as_slice()` and `zv_guest_memory_write()` are the only ways to reach guest
+  memory, and both use the same overflow-free range check.
 - Every offset from the guest is range-checked explicitly before it's used as an index.
-- One existing bug stays as-is for now: `contains_range` in `memory.zig` can overflow on
-  `addr + size`. It's translated unchanged and flagged with a `TODO`, keeping this pass a pure
-  translation.
+- Zig also panics on integer overflow and on `.?` of null in Debug and ReleaseSafe builds. C has
+  neither, so every such check is written out explicitly (see "Safety checks" in the conventions).
+  For example, `contains_range` in `memory.zig` computes `addr + size`: Zig panics on overflow,
+  while a literal C port would wrap and hand out a pointer outside guest RAM. The C version uses
+  an overflow-free check. See "Deviations from the Zig code".
 
 ## Phases
 
@@ -181,7 +184,19 @@ Every later phase follows these, so check new code against them.
   includes the `pthread_once` KVM getter in phase 5).
 - **Error paths close what Zig leaks.** `Kvm.init` leaves `/dev/kvm` open when the version check
   fails, and `Vm.create_vcpu` leaves the vCPU fd open when its mmap fails. The `goto` cleanup closes
-  both. This is intentional; other known bugs (like `contains_range`) are still translated as-is.
+  both. This is intentional; see "Deviations from the Zig code".
+- **Safety checks.** Every check Zig performs implicitly (integer overflow, slice bounds, `.?`
+  unwraps, `@intCast`) is written out in C:
+  - For guest-controlled input, or a condition the function already reports, return the
+    documented error (e.g. `zv_guest_memory_as_slice` returns `-EFAULT`).
+  - For a host-side invariant (a `.?` on something that must exist, a counter running out), abort
+    with a message, like Zig's panic.
+  - Range checks are written so they can't overflow:
+    `size <= region_size && gpa >= start && gpa - start <= region_size - size`.
+- **`arch/x86/` names** use the `zv_x86_` / `ZV_X86_` prefix. `arch/root.zig` only selects x86, so it
+  has no C file; `arch/x86/layout.h` holds the `#error` for other architectures.
+- **Integer constants in `_Static_assert`.** A shift by 32 or more of an `int` literal is undefined,
+  so clang rejects it as a constant expression. Compare against `UINT32_MAX` instead.
 - **The kvm layer never logs**, as in Zig. A logged error fails any test that hits it, and callers
   (e.g. the vCPU loop on an unknown exit) decide how serious an error is.
 - **Closing fds in `deinit`.** Zig's `std.debug.assert(close(...) == 0)` becomes
@@ -196,6 +211,27 @@ Every later phase follows these, so check new code against them.
     arguments.
 - **Formatting.** `csrc/.clang-format` gives 4-space indent, 100 columns, and Linux-style function
   braces. Every file must pass `clang-format --dry-run -Werror`.
+
+### Deviations from the Zig code
+
+Every intentional behaviour difference is listed here, so the Zig code stays a reliable reference
+for everything else.
+
+| Where | Zig | C | Why |
+|---|---|---|---|
+| `kvm/root.zig` `Kvm.init` | leaves `/dev/kvm` open if the version check fails | closes it | falls out of `goto` cleanup |
+| `kvm/vm.zig` `create_vcpu` | leaves the vCPU fd open if mmap fails | closes it | falls out of `goto` cleanup |
+| `vmm/memory.zig` `contains`, `contains_range` | `addr + size` panics on overflow | overflow-free check, `-EFAULT` | a wrapping check would hand out pointers outside guest RAM |
+| `vmm/image/bzimage.zig` | panics if the kernel offset is past the end of the file, or the initramfs is bigger than everything below the end of RAM | returns `-ENOEXEC` / `-EFBIG` | explicit safety checks. `image/root.zig` falls back to a raw load on any bzImage error, so such input now loads raw instead of crashing |
+| `vmm/acpi/rsdt.zig` RSDP checksums | computes the extended checksum first, which leaves the 36-byte sum wrong (off by the first checksum) | 20-byte checksum first, then the extended one; both sums are 0 | bug fix. Guests boot either way today, but the spec requires both |
+| `vmm/arch/x86/acpi.zig` `setup_tables` | takes the whole `Vm` | takes guest memory and the vCPU count | those are the only two fields it reads; testable before the VM exists |
+| `VmConfig` (in `vmm/root.zig`) | part of `root.zig` | own header `vmm/vm_config.h` | layout and image code use it without depending on the whole VM |
+| `vmm/arch/x86/acpi.zig` `setup_tables` | panics (`.?`) if the ACPI area isn't mapped | returns `-EFAULT` | tested |
+| `test_utils/mmap.zig` | the tracker can log leaked mappings itself | `zv_mmap_tracker_stop()` returns the count; the caller reports | the Zig logging was off by default |
+| `utils/idalloc.zig` | generic over the id count | `zv_id_allocator_init(count)`, aborts above 64 ids | C has no generics; the only user needs 16 |
+| `utils/file.c` | `std.Io.Dir.readFileAlloc` | new `zv_read_file` | no C equivalent |
+| `utils/mac.zig` | two error kinds; `parseInt` accepts e.g. `+f` | one `-EINVAL`; exactly two hex digits | stricter on malformed input only |
+| `vmm/image/bzimage.zig` | re-checks `initrd_begin + len > ram_end`, which can never be true after aligning down | check dropped | replaced by the real underflow check above |
 
 ### Building and testing
 
