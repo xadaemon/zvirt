@@ -98,8 +98,8 @@ Each phase is done when the matching Zig tests pass in C. The Zig tree keeps bui
 the port catches up.
 
 1. **Scaffolding.** `csrc/` tree, CMake with clang, the log header, the test runner, the mmap and fd leak detectors.
-2. **`utils/`.** eventfd, epoll, idalloc, mac, lazy (becomes `pthread_once`), tap. Each keeps its
-   unit tests.
+2. **`utils/`.** eventfd, epoll, idalloc, mac, tap. Each keeps its unit tests. `lazy.zig` has no C
+   file; see the conventions section.
 3. **`kvm/`.** ioctl wrapper, KVM system, VM, vCPU, CPUID.
 4. **Guest setup.** Guest memory, bzImage loader, x86 layout, GDT, page tables, ACPI tables (RSDT,
    XSDT, MADT).
@@ -125,8 +125,9 @@ the port catches up.
 
 Every later phase follows these, so check new code against them.
 
-- **File mapping.** `foo.zig` becomes `csrc/<same dir>/foo.{c,h}`. A module's `root.zig` becomes
-  `<module>/<module>.{c,h}`, e.g. `test_utils/root.zig` becomes `test_utils/test_utils.{c,h}`.
+- **File mapping.** `foo.zig` becomes `csrc/<same dir>/foo.{c,h}`. A module's `root.zig` that
+  contains real code becomes `<module>/<module>.{c,h}`, e.g. `test_utils/root.zig` becomes
+  `test_utils/test_utils.{c,h}`.
   `test_runner.zig` becomes `csrc/test_runner.{c,h}`.
 - **Tests live in `foo_test.c` next to `foo.c`.** This is the one exception to file-for-file parity.
   Zig keeps `test` blocks inside the source file, but in C that would compile the tests into the
@@ -150,10 +151,28 @@ Every later phase follows these, so check new code against them.
 - **Logging.** Each file does `#define LOG_SCOPE "vmm"` and calls
   `zv_log_err(LOG_SCOPE, "fmt", ...)`. Output looks like Zig's default logger:
   `error(vmm): message`.
+- **A `root.zig` that only re-exports other files gets no C file** (e.g. `utils/root.zig`). The rule
+  above applies only when `root.zig` contains real code. Callers include the specific header they
+  need.
+- **`lazy.zig` gets no C file.** `Lazy(T)` is used once, for `kvm_system` in `vmm/root.zig`. A
+  `pthread_once` callback takes no argument, so a generic wrapper can't be built on it. Phase 5
+  writes the `pthread_once` pattern at that call site and caches the init function's return code,
+  which keeps the "failed evaluation is cached" behaviour. The three Lazy tests would only test
+  libc, so they are not ported.
 - **Return values.**
-  - Production code returns 0 or `-errno`.
+  - Production code returns 0 or `-errno`, with outputs through pointer arguments.
+  - A function that produces a count returns it directly, like `read(2)`. The return type is
+    `ssize_t` or `int`: `>= 0` is the count, `< 0` is `-errno`. Examples: `zv_epoll_pwait`, the tap
+    read/write functions.
+  - A Zig optional (`?T`) becomes the same `int` convention. The function returns 0 and fills the
+    out pointer when there is a value. For "no value" it returns a specific errno that the header
+    documents, e.g. `-ENOSPC` for a full id allocator or `-EBUSY` for an id already taken.
   - Test-only helpers (`test_utils/`) return a bool or a count. They abort when the environment is
     broken (e.g. `/proc/self/fd` won't open, or out of memory).
+- **Closing fds in `deinit`.** Zig's `std.debug.assert(close(...) == 0)` becomes
+  `int rc = close(fd); assert(rc == 0); (void)rc;`, and the fd field is then set to -1.
+- **glibc's `struct epoll_event` is packed on x86_64.** Read and write its `data` field by value,
+  never through a pointer, or `-Waddress-of-packed-member` fails the build.
 - **Strict C17 pitfalls** (these fail under `-Wpedantic -Werror`):
   - Write `= {0}`, not `= {}`.
   - Use `_Noreturn`, `__typeof__`, and `[]` flexible array members.

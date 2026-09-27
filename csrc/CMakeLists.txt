@@ -78,7 +78,12 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 # ---------------------------------------------------------------------------------------------------
 
 add_library(zv_utils STATIC
+    utils/epoll.c
+    utils/eventfd.c
+    utils/idalloc.c
     utils/log.c
+    utils/mac.c
+    utils/tap.c
 )
 target_link_libraries(zv_utils PUBLIC Threads::Threads)
 
@@ -101,6 +106,17 @@ add_library(zv_test_runner STATIC
     test_runner.c
 )
 target_link_libraries(zv_test_runner PUBLIC zv_utils)
+
+add_executable(zv_utils_tests
+    utils/tests_main.c
+    utils/epoll_test.c
+    utils/eventfd_test.c
+    utils/idalloc_test.c
+    utils/mac_test.c
+    utils/tap_test.c
+)
+target_link_libraries(zv_utils_tests PRIVATE zv_utils zv_test_runner)
+add_test(NAME utils COMMAND zv_utils_tests WORKING_DIRECTORY ${ZV_TEST_WORKING_DIRECTORY})
 
 add_executable(zv_test_utils_tests
     test_utils/tests_main.c
